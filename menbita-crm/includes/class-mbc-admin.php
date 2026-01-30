@@ -160,6 +160,7 @@ class MBC_Admin {
         if ( ! MBC_Security::current_user_can_manage() ) {
             return;
         }
+        require_once ABSPATH . 'wp-admin/includes/class-wp-list-table.php';
         require_once MBC_PLUGIN_PATH . 'includes/admin/class-mbc-candidates-table.php';
         $table = new MBC_Candidates_Table();
         $table->process_bulk_action();
