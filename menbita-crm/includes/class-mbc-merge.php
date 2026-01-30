@@ -67,11 +67,11 @@ class MBC_Merge {
     private static function merge_terms( int $primary_id, int $secondary_id, string $table_name, string $column ): void {
         global $wpdb;
         $table = MBC_DB::table( $table_name );
-        $terms = $wpdb->get_col( $wpdb->prepare( \"SELECT {$column} FROM {$table} WHERE candidate_id = %d\", $secondary_id ) );
+        $terms = $wpdb->get_col( $wpdb->prepare( "SELECT {$column} FROM {$table} WHERE candidate_id = %d", $secondary_id ) );
         foreach ( $terms as $term ) {
             $wpdb->query(
                 $wpdb->prepare(
-                    \"INSERT IGNORE INTO {$table} (candidate_id, {$column}) VALUES (%d, %s)\",
+                    "INSERT IGNORE INTO {$table} (candidate_id, {$column}) VALUES (%d, %s)",
                     $primary_id,
                     $term
                 )

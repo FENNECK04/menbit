@@ -811,7 +811,7 @@ class MBC_Candidates {
 
     public static function pipeline_stages(): array {
         $settings = get_option( 'mbc_settings', MBC_Security::default_settings() );
-        $lines = array_filter( array_map( 'trim', explode( \"\\n\", (string) $settings['pipeline_stages'] ) ) );
+        $lines = array_filter( array_map( 'trim', explode( "\n", (string) $settings['pipeline_stages'] ) ) );
         return $lines ?: array( 'new' );
     }
 }
