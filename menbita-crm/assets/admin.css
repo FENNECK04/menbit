@@ -1,0 +1,12 @@
+.mbc-confirmation {
+    padding: 12px;
+    background: #d1f3d1;
+    border: 1px solid #7ad07a;
+    margin-top: 16px;
+}
+
+.mbc-cv-form label,
+.mbc-cv-update label {
+    display: block;
+    margin-bottom: 4px;
+}
