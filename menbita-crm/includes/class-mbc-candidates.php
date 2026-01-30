@@ -11,6 +11,11 @@ class MBC_Candidates {
         add_action( 'init', array( __CLASS__, 'handle_form_submission' ) );
         add_action( 'init', array( __CLASS__, 'handle_update_submission' ) );
         add_action( 'admin_post_mbc_download_cv', array( __CLASS__, 'handle_download_cv' ) );
+        add_action( 'admin_post_mbc_add_note', array( __CLASS__, 'handle_add_note' ) );
+        add_action( 'admin_post_mbc_upload_cv', array( __CLASS__, 'handle_staff_cv_upload' ) );
+        add_action( 'admin_post_mbc_export_candidate', array( __CLASS__, 'handle_export_candidate' ) );
+        add_action( 'admin_post_mbc_delete_candidate', array( __CLASS__, 'handle_delete_candidate' ) );
+        add_action( 'admin_post_mbc_update_candidate', array( __CLASS__, 'handle_update_candidate_admin' ) );
     }
 
     public static function render_form_shortcode(): string {
@@ -106,6 +111,12 @@ class MBC_Candidates {
         if ( ! $candidate ) {
             return '<p>Candidate not found.</p>';
         }
+        $candidate_sectors = self::get_candidate_terms( $candidate->id, MBC_TABLE_SECTORS, 'sector_slug' );
+        $candidate_industries = self::get_candidate_terms( $candidate->id, MBC_TABLE_INDUSTRIES, 'industry_slug' );
+        $message = '';
+        if ( isset( $_GET['mbc_updated'] ) ) {
+            $message = '<div class=\"mbc-confirmation\">Your email is registered and your CV was transmitted.</div>';
+        }
         ob_start();
         ?>
         <form class="mbc-cv-update" method="post" enctype="multipart/form-data">
@@ -136,13 +147,13 @@ class MBC_Candidates {
             <p>
                 <label>Sectors</label>
                 <?php foreach ( self::sectors_list() as $slug => $label ) : ?>
-                    <label><input type="checkbox" name="mbc_sectors[]" value="<?php echo esc_attr( $slug ); ?>"> <?php echo esc_html( $label ); ?></label><br>
+                    <label><input type="checkbox" name="mbc_sectors[]" value="<?php echo esc_attr( $slug ); ?>" <?php checked( in_array( $slug, $candidate_sectors, true ) ); ?>> <?php echo esc_html( $label ); ?></label><br>
                 <?php endforeach; ?>
             </p>
             <p>
                 <label>Industries</label>
                 <?php foreach ( self::industries_list() as $slug => $label ) : ?>
-                    <label><input type="checkbox" name="mbc_industries[]" value="<?php echo esc_attr( $slug ); ?>"> <?php echo esc_html( $label ); ?></label><br>
+                    <label><input type="checkbox" name="mbc_industries[]" value="<?php echo esc_attr( $slug ); ?>" <?php checked( in_array( $slug, $candidate_industries, true ) ); ?>> <?php echo esc_html( $label ); ?></label><br>
                 <?php endforeach; ?>
             </p>
             <p>
@@ -152,6 +163,7 @@ class MBC_Candidates {
             <button type="submit">Update CV</button>
         </form>
         <?php
+        echo $message;
         return ob_get_clean();
     }
 
@@ -181,19 +193,26 @@ class MBC_Candidates {
             return;
         }
 
-        $candidate_id = self::upsert_candidate( $data );
-        if ( ! $candidate_id ) {
+        $upload = self::handle_cv_upload( 'mbc_cv' );
+        if ( ! $upload ) {
             return;
         }
 
-        $upload = self::handle_cv_upload( 'mbc_cv' );
-        if ( $upload ) {
-            self::insert_cv_version( $candidate_id, $upload, 'candidate' );
-            self::update_candidate_last_cv( $candidate_id );
-            self::check_duplicate_signals( $candidate_id, $data, $upload['file_hash'] );
+        $upsert = self::upsert_candidate( $data );
+        if ( empty( $upsert['id'] ) ) {
+            if ( file_exists( $upload['file_path'] ) ) {
+                unlink( $upload['file_path'] );
+            }
+            return;
         }
+        $candidate_id = (int) $upsert['id'];
 
-        self::log_activity( $candidate_id, 'created', array( 'source' => 'form' ) );
+        self::insert_cv_version( $candidate_id, $upload, 'candidate' );
+        self::update_candidate_last_cv( $candidate_id );
+        self::check_duplicate_signals( $candidate_id, $data, $upload['file_hash'] );
+
+        $action = $upsert['created'] ? 'created' : 'updated';
+        self::log_activity( $candidate_id, $action, array( 'source' => 'form' ) );
         self::send_confirmation_email( $candidate_id );
 
         $redirect = add_query_arg( 'mbc_submitted', '1', wp_get_referer() ?: home_url() );
@@ -262,6 +281,136 @@ class MBC_Candidates {
         exit;
     }
 
+    public static function handle_add_note(): void {
+        if ( ! MBC_Security::current_user_can_manage() ) {
+            wp_die( esc_html__( 'Unauthorized', 'menbita-crm' ) );
+        }
+        if ( empty( $_POST['candidate_id'] ) || empty( $_POST['_wpnonce'] ) ) {
+            wp_die( esc_html__( 'Invalid request', 'menbita-crm' ) );
+        }
+        if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ), 'mbc_add_note' ) ) {
+            wp_die( esc_html__( 'Invalid nonce', 'menbita-crm' ) );
+        }
+        $candidate_id = absint( $_POST['candidate_id'] );
+        $note = sanitize_textarea_field( wp_unslash( $_POST['note'] ?? '' ) );
+        if ( ! empty( $note ) ) {
+            self::add_note( $candidate_id, get_current_user_id(), $note );
+        }
+        wp_safe_redirect( wp_get_referer() );
+        exit;
+    }
+
+    public static function handle_staff_cv_upload(): void {
+        if ( ! MBC_Security::current_user_can_manage() ) {
+            wp_die( esc_html__( 'Unauthorized', 'menbita-crm' ) );
+        }
+        if ( empty( $_POST['candidate_id'] ) || empty( $_POST['_wpnonce'] ) ) {
+            wp_die( esc_html__( 'Invalid request', 'menbita-crm' ) );
+        }
+        if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ), 'mbc_upload_cv' ) ) {
+            wp_die( esc_html__( 'Invalid nonce', 'menbita-crm' ) );
+        }
+        $candidate_id = absint( $_POST['candidate_id'] );
+        $upload = self::handle_cv_upload( 'mbc_cv' );
+        if ( $upload ) {
+            self::insert_cv_version( $candidate_id, $upload, 'staff' );
+            self::update_candidate_last_cv( $candidate_id );
+            self::log_activity( $candidate_id, 'cv_uploaded', array( 'source' => 'staff' ), get_current_user_id() );
+        }
+        wp_safe_redirect( wp_get_referer() );
+        exit;
+    }
+
+    public static function handle_export_candidate(): void {
+        if ( ! MBC_Security::current_user_can_manage() ) {
+            wp_die( esc_html__( 'Unauthorized', 'menbita-crm' ) );
+        }
+        if ( empty( $_POST['mbc_export_email'] ) || empty( $_POST['_wpnonce'] ) ) {
+            wp_die( esc_html__( 'Invalid request', 'menbita-crm' ) );
+        }
+        if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ), 'mbc_export_candidate' ) ) {
+            wp_die( esc_html__( 'Invalid nonce', 'menbita-crm' ) );
+        }
+        $email = strtolower( sanitize_email( wp_unslash( $_POST['mbc_export_email'] ) ) );
+        $candidate = self::get_candidate_by_email( $email );
+        if ( ! $candidate ) {
+            wp_safe_redirect( wp_get_referer() );
+            exit;
+        }
+        $sectors = self::get_candidate_terms( $candidate->id, MBC_TABLE_SECTORS, 'sector_slug' );
+        $industries = self::get_candidate_terms( $candidate->id, MBC_TABLE_INDUSTRIES, 'industry_slug' );
+        $payload = array(
+            'candidate' => $candidate,
+            'sectors' => $sectors,
+            'industries' => $industries,
+            'notes' => self::get_candidate_notes( $candidate->id ),
+        );
+        header( 'Content-Type: application/json; charset=utf-8' );
+        header( 'Content-Disposition: attachment; filename="candidate-' . $candidate->id . '.json"' );
+        echo wp_json_encode( $payload );
+        exit;
+    }
+
+    public static function handle_delete_candidate(): void {
+        if ( ! MBC_Security::current_user_can_manage() ) {
+            wp_die( esc_html__( 'Unauthorized', 'menbita-crm' ) );
+        }
+        if ( empty( $_POST['mbc_delete_email'] ) || empty( $_POST['_wpnonce'] ) ) {
+            wp_die( esc_html__( 'Invalid request', 'menbita-crm' ) );
+        }
+        if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ), 'mbc_delete_candidate' ) ) {
+            wp_die( esc_html__( 'Invalid nonce', 'menbita-crm' ) );
+        }
+        $email = strtolower( sanitize_email( wp_unslash( $_POST['mbc_delete_email'] ) ) );
+        $candidate = self::get_candidate_by_email( $email );
+        if ( $candidate ) {
+            self::delete_candidate( $candidate->id );
+        }
+        wp_safe_redirect( wp_get_referer() );
+        exit;
+    }
+
+    public static function handle_update_candidate_admin(): void {
+        if ( ! MBC_Security::current_user_can_manage() ) {
+            wp_die( esc_html__( 'Unauthorized', 'menbita-crm' ) );
+        }
+        if ( empty( $_POST['candidate_id'] ) || empty( $_POST['_wpnonce'] ) ) {
+            wp_die( esc_html__( 'Invalid request', 'menbita-crm' ) );
+        }
+        if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ), 'mbc_update_candidate' ) ) {
+            wp_die( esc_html__( 'Invalid nonce', 'menbita-crm' ) );
+        }
+        $candidate_id = absint( $_POST['candidate_id'] );
+        $owner_user_id = absint( $_POST['owner_user_id'] ?? 0 );
+        $stage = sanitize_text_field( wp_unslash( $_POST['pipeline_stage'] ?? '' ) );
+        $status = sanitize_text_field( wp_unslash( $_POST['status'] ?? '' ) );
+        $experience = sanitize_text_field( wp_unslash( $_POST['experience_bracket'] ?? '' ) );
+        $availability = sanitize_text_field( wp_unslash( $_POST['availability_type'] ?? '' ) );
+        $availability_note = sanitize_text_field( wp_unslash( $_POST['availability_note'] ?? '' ) );
+
+        global $wpdb;
+        $table = MBC_DB::table( MBC_TABLE_CANDIDATES );
+        $wpdb->update(
+            $table,
+            array(
+                'owner_user_id' => $owner_user_id ?: null,
+                'pipeline_stage' => $stage,
+                'status' => $status,
+                'experience_bracket' => $experience,
+                'availability_type' => $availability,
+                'availability_note' => $availability_note,
+                'updated_at' => current_time( 'mysql' ),
+                'last_activity_at' => current_time( 'mysql' ),
+            ),
+            array( 'id' => $candidate_id ),
+            array( '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ),
+            array( '%d' )
+        );
+        self::log_activity( $candidate_id, 'updated', array( 'source' => 'admin' ), get_current_user_id() );
+        wp_safe_redirect( wp_get_referer() );
+        exit;
+    }
+
     private static function sanitize_form_data( bool $update_only = false ): array {
         $data = array(
             'first_name' => sanitize_text_field( wp_unslash( $_POST['mbc_first_name'] ?? '' ) ),
@@ -291,7 +440,7 @@ class MBC_Candidates {
         return $data;
     }
 
-    private static function upsert_candidate( array $data ): int {
+    private static function upsert_candidate( array $data ): array {
         global $wpdb;
         $table = MBC_DB::table( MBC_TABLE_CANDIDATES );
         $existing = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE email = %s", $data['email'] ) );
@@ -318,7 +467,10 @@ class MBC_Candidates {
             self::sync_taxonomy_table( $existing->id, $data['sectors'], MBC_TABLE_SECTORS, 'sector_slug' );
             self::sync_taxonomy_table( $existing->id, $data['industries'], MBC_TABLE_INDUSTRIES, 'industry_slug' );
 
-            return (int) $existing->id;
+            return array(
+                'id' => (int) $existing->id,
+                'created' => false,
+            );
         }
 
         $inserted = $wpdb->insert(
@@ -351,10 +503,16 @@ class MBC_Candidates {
             $candidate_id = (int) $wpdb->insert_id;
             self::sync_taxonomy_table( $candidate_id, $data['sectors'], MBC_TABLE_SECTORS, 'sector_slug' );
             self::sync_taxonomy_table( $candidate_id, $data['industries'], MBC_TABLE_INDUSTRIES, 'industry_slug' );
-            return $candidate_id;
+            return array(
+                'id' => $candidate_id,
+                'created' => true,
+            );
         }
 
-        return 0;
+        return array(
+            'id' => 0,
+            'created' => false,
+        );
     }
 
     private static function update_candidate_fields( int $candidate_id, array $data ): void {
@@ -528,6 +686,13 @@ class MBC_Candidates {
         return $row ?: null;
     }
 
+    public static function get_candidate_by_email( string $email ): ?object {
+        global $wpdb;
+        $table = MBC_DB::table( MBC_TABLE_CANDIDATES );
+        $row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE email = %s", $email ) );
+        return $row ?: null;
+    }
+
     public static function get_cv_version( int $cv_id ): ?object {
         global $wpdb;
         $table = MBC_DB::table( MBC_TABLE_CV );
@@ -549,6 +714,64 @@ class MBC_Candidates {
             ),
             array( '%d', '%d', '%s', '%s', '%s' )
         );
+    }
+
+    public static function get_candidate_terms( int $candidate_id, string $table_name, string $column ): array {
+        global $wpdb;
+        $table = MBC_DB::table( $table_name );
+        $results = $wpdb->get_col( $wpdb->prepare( "SELECT {$column} FROM {$table} WHERE candidate_id = %d", $candidate_id ) );
+        return $results ?: array();
+    }
+
+    public static function add_note( int $candidate_id, int $author_user_id, string $note ): void {
+        global $wpdb;
+        $table = MBC_DB::table( MBC_TABLE_NOTES );
+        $wpdb->insert(
+            $table,
+            array(
+                'candidate_id' => $candidate_id,
+                'author_user_id' => $author_user_id,
+                'note' => $note,
+                'created_at' => current_time( 'mysql' ),
+            ),
+            array( '%d', '%d', '%s', '%s' )
+        );
+        self::log_activity( $candidate_id, 'note_added', array(), $author_user_id );
+    }
+
+    public static function get_candidate_notes( int $candidate_id ): array {
+        global $wpdb;
+        $table = MBC_DB::table( MBC_TABLE_NOTES );
+        return $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$table} WHERE candidate_id = %d ORDER BY created_at DESC", $candidate_id ) );
+    }
+
+    public static function get_candidate_activity( int $candidate_id ): array {
+        global $wpdb;
+        $table = MBC_DB::table( MBC_TABLE_ACTIVITY );
+        return $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$table} WHERE candidate_id = %d ORDER BY created_at DESC LIMIT 50", $candidate_id ) );
+    }
+
+    public static function delete_candidate( int $candidate_id ): void {
+        global $wpdb;
+        $cv_versions = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM " . MBC_DB::table( MBC_TABLE_CV ) . " WHERE candidate_id = %d", $candidate_id ) );
+        foreach ( $cv_versions as $cv ) {
+            if ( $cv->file_path && file_exists( $cv->file_path ) ) {
+                unlink( $cv->file_path );
+            }
+        }
+        $tables = array(
+            MBC_TABLE_CV,
+            MBC_TABLE_NOTES,
+            MBC_TABLE_ACTIVITY,
+            MBC_TABLE_SECTORS,
+            MBC_TABLE_INDUSTRIES,
+            MBC_TABLE_EVENT_ATTENDANCE,
+            MBC_TABLE_JET_CANDIDATES,
+        );
+        foreach ( $tables as $table ) {
+            $wpdb->delete( MBC_DB::table( $table ), array( 'candidate_id' => $candidate_id ), array( '%d' ) );
+        }
+        $wpdb->delete( MBC_DB::table( MBC_TABLE_CANDIDATES ), array( 'id' => $candidate_id ), array( '%d' ) );
     }
 
     public static function sectors_list(): array {
@@ -580,5 +803,15 @@ class MBC_Candidates {
             'it' => 'IT & Tech',
             'other' => 'Other',
         );
+    }
+
+    public static function statuses_list(): array {
+        return array( 'active', 'inactive', 'to_relaunch', 'obsolete', 'blacklist' );
+    }
+
+    public static function pipeline_stages(): array {
+        $settings = get_option( 'mbc_settings', MBC_Security::default_settings() );
+        $lines = array_filter( array_map( 'trim', explode( \"\\n\", (string) $settings['pipeline_stages'] ) ) );
+        return $lines ?: array( 'new' );
     }
 }

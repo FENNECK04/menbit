@@ -43,6 +43,7 @@ require_once MBC_PLUGIN_PATH . 'includes/class-mbc-exports.php';
 require_once MBC_PLUGIN_PATH . 'includes/class-mbc-merge.php';
 require_once MBC_PLUGIN_PATH . 'includes/class-mbc-dossiers.php';
 require_once MBC_PLUGIN_PATH . 'includes/class-mbc-events.php';
+require_once MBC_PLUGIN_PATH . 'includes/class-mbc-companies.php';
 require_once MBC_PLUGIN_PATH . 'includes/class-mbc-scheduler.php';
 require_once MBC_PLUGIN_PATH . 'includes/class-mbc-admin.php';
 
@@ -56,3 +57,4 @@ add_action( 'plugins_loaded', array( 'MBC_Exports', 'init' ) );
 add_action( 'plugins_loaded', array( 'MBC_Merge', 'init' ) );
 add_action( 'plugins_loaded', array( 'MBC_Dossiers', 'init' ) );
 add_action( 'plugins_loaded', array( 'MBC_Events', 'init' ) );
+add_action( 'plugins_loaded', array( 'MBC_Companies', 'init' ) );

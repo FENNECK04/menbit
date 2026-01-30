@@ -15,6 +15,7 @@ Menbita CRM is an internal ATS/CRM WordPress plugin for managing candidate CV su
 ## Configuration
 - Admin settings are located under **Menbita CRM → Settings**.
 - Configure email templates, token expiration, renewal rules, and upload limits.
+- Pipeline stages can be customized in the settings page (one per line).
 
 ## Roles & capabilities
 - Administrators automatically get the `manage_menbita_crm` capability on activation.
@@ -23,6 +24,7 @@ Menbita CRM is an internal ATS/CRM WordPress plugin for managing candidate CV su
 ## Troubleshooting
 - Use **Menbita CRM → Settings** to view the self-check output for table and scheduler status.
 - Make sure uploads are writable; private CVs are stored in `wp-content/uploads/menbita-crm-private/`.
+- Use the Data Retention tools on the Settings page to export or delete candidate data by email.
 
 ## Screenshots
 Add screenshots to `assets/screenshots/` when available:

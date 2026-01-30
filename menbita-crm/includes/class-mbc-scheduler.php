@@ -10,6 +10,7 @@ class MBC_Scheduler {
     public static function init(): void {
         add_action( self::ACTION_HOOK, array( __CLASS__, 'run_renewal_scan' ) );
         add_action( 'admin_post_mbc_run_renewal', array( __CLASS__, 'run_manual_scan' ) );
+        add_action( 'admin_post_mbc_send_renewal', array( __CLASS__, 'send_manual_renewal' ) );
     }
 
     public static function schedule_recurring(): void {
@@ -32,6 +33,24 @@ class MBC_Scheduler {
             wp_die( esc_html__( 'Invalid nonce', 'menbita-crm' ) );
         }
         self::run_renewal_scan();
+        wp_safe_redirect( wp_get_referer() );
+        exit;
+    }
+
+    public static function send_manual_renewal(): void {
+        if ( ! MBC_Security::current_user_can_manage() ) {
+            wp_die( esc_html__( 'Unauthorized', 'menbita-crm' ) );
+        }
+        if ( empty( $_GET['candidate_id'] ) || empty( $_GET['_wpnonce'] ) ) {
+            wp_die( esc_html__( 'Invalid request', 'menbita-crm' ) );
+        }
+        if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ), 'mbc_send_renewal' ) ) {
+            wp_die( esc_html__( 'Invalid nonce', 'menbita-crm' ) );
+        }
+        $candidate = MBC_Candidates::get_candidate( absint( $_GET['candidate_id'] ) );
+        if ( $candidate ) {
+            self::send_renewal_email( $candidate );
+        }
         wp_safe_redirect( wp_get_referer() );
         exit;
     }

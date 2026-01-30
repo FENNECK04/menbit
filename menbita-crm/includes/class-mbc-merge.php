@@ -50,6 +50,9 @@ class MBC_Merge {
             );
         }
 
+        self::merge_terms( $primary_id, $secondary_id, MBC_TABLE_SECTORS, 'sector_slug' );
+        self::merge_terms( $primary_id, $secondary_id, MBC_TABLE_INDUSTRIES, 'industry_slug' );
+
         $wpdb->update(
             MBC_DB::table( MBC_TABLE_CANDIDATES ),
             array( 'status' => 'obsolete', 'duplicate_status' => 'merged', 'updated_at' => current_time( 'mysql' ) ),
@@ -59,5 +62,21 @@ class MBC_Merge {
         );
 
         MBC_Candidates::log_activity( $primary_id, 'merged', array( 'secondary_id' => $secondary_id ) );
+    }
+
+    private static function merge_terms( int $primary_id, int $secondary_id, string $table_name, string $column ): void {
+        global $wpdb;
+        $table = MBC_DB::table( $table_name );
+        $terms = $wpdb->get_col( $wpdb->prepare( \"SELECT {$column} FROM {$table} WHERE candidate_id = %d\", $secondary_id ) );
+        foreach ( $terms as $term ) {
+            $wpdb->query(
+                $wpdb->prepare(
+                    \"INSERT IGNORE INTO {$table} (candidate_id, {$column}) VALUES (%d, %s)\",
+                    $primary_id,
+                    $term
+                )
+            );
+        }
+        $wpdb->delete( $table, array( 'candidate_id' => $secondary_id ), array( '%d' ) );
     }
 }

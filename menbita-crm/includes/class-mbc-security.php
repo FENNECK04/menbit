@@ -22,6 +22,7 @@ class MBC_Security {
             'renewal_body' => "Hello {first_name},\n\nPlease renew your CV if you are still interested in opportunities in Morocco.",
             'reminder_subject' => 'Reminder: renew your CV',
             'reminder_body' => "Hello {first_name},\n\nWe have not received an updated CV yet.",
+            'pipeline_stages' => "new\nto_contact\ncontacted\ninterested\nprequalified\nproposed\nshortlisted\ninterview_scheduled\noffer\nplaced\nnot_selected\ninactive",
             'token_expiration_days' => 14,
             'renewal_days' => 365,
             'renewal_reminder_days' => 7,
